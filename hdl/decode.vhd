@@ -941,8 +941,8 @@ begin
 								next_state <= TWO_LATENCY_CYCLES;
 							end if;
 						
-						-- Is writeback enabled in something that is not STMDB ?
-						elsif current_inst(21) = '1' and (current_inst(24 downto 23) /= "10" or current_inst(20) /= '0')
+						-- Complete every STM transfer before writing back the base.
+						elsif current_inst(21) = '1'
 						then
 							-- Yes -> a writeback cycle should follow
 							next_state <= LDMSTM_WRITEBACK;
@@ -970,8 +970,6 @@ begin
 
 					-- If we are loading a register which is not R15, writeback si enabled
 					if (current_inst(20) = '1' and ldmstm_current_reg /= 15)
-					-- If base writeback is enabled and we are in a STMDB instruction, writeback is enabled
-					or (current_inst(24 downto 23) = "10" and current_inst(21 downto 20) = "10" and state = MAIN_STATE)
 					then
 						rdest_wren <= '1';
 					else
@@ -1002,7 +1000,7 @@ begin
 							mem_ctrl <= LOAD_BURST;
 						end if;
 					else
-						-- Write back the address (STM, only actually used in STMDB, as it's the only case where the address is correct)
+						-- STM writes memory here; base writeback uses its own cycle.
 						wb_sel <= '0';
 						
 						rdest_adr <= address_remap(current_inst(19 downto 16), mode);
@@ -1027,11 +1025,11 @@ begin
 					barrelshift_operand <= '0';
 					literal_shift_amnt <= "00010";
 
-					-- IA/IB/DA keep the original base until the writeback cycle.
+					-- All STM modes keep the original base until the writeback cycle.
 					-- Count registers already selected, not gaps in the register list.
-					-- LDM uses a memory burst; STMDB has separate base writeback.
+					-- LDM uses a memory burst.
 					stm_transferred := 0;
-					if current_inst(20) = '0' and current_inst(24 downto 23) /= "10"
+					if current_inst(20) = '0'
 					then
 						stm_completed_regs := current_inst(15 downto 0) and not ldmstm_cur_bitmask;
 						stm_transferred := count_set_bits(stm_completed_regs);
@@ -1045,7 +1043,7 @@ begin
 					-- DA
 					when "00" => literal_data <= std_logic_vector(to_signed(count_set_bits(current_inst(15 downto 0)) - stm_transferred - 1, 24));
 					-- DB
-					when others =>	literal_data <= std_logic_vector(to_signed(count_set_bits(current_inst(15 downto 0)), 24));
+					when others =>	literal_data <= std_logic_vector(to_signed(count_set_bits(current_inst(15 downto 0)) - stm_transferred, 24));
 					end case;
 					
 					opb_is_literal <= '1';
